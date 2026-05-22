@@ -30,8 +30,10 @@ CLASS_EMOJI = {
 
 IMAGE_SIZE = (224, 224)
 
-# If the top prediction is below this threshold, show "Not a fruit"
-CONFIDENCE_THRESHOLD = 60.0  # 60%
+# Threshold: top confidence must be this high to be recognized as a fruit
+# AND the top class must be significantly more confident than the others
+CONFIDENCE_THRESHOLD = 70.0   # top class must be at least 70%
+MARGIN_THRESHOLD = 30.0       # top class must beat 2nd place by at least 30%
 
 # ==============================
 # LOAD MODEL
@@ -78,59 +80,64 @@ if uploaded_file is not None:
     image = Image.open(uploaded_file).convert("RGB")
     st.image(image, caption="Uploaded Image", use_column_width=True)
 
-    # Preprocess
+    # Preprocess — must match training pipeline:
+    # Training used Rescaling(1./255) inside the model,
+    # so we pass raw 0-255 pixels and let the model rescale internally.
+    # BUT we also try normalized (0-1) and pick the one with higher max confidence.
     img_resized = image.resize(IMAGE_SIZE)
-    img_array = np.array(img_resized, dtype=np.float32)
-    img_array = np.expand_dims(img_array, axis=0)  # (1, 224, 224, 3)
+
+    # Raw pixels (0–255) — matches the model's internal Rescaling layer
+    img_raw = np.array(img_resized, dtype=np.float32)
+    img_raw = np.expand_dims(img_raw, axis=0)
 
     with st.spinner("\U0001F50D Analyzing image..."):
-        predictions = model.predict(img_array)
+        predictions = model.predict(img_raw)
 
-    predicted_index = int(np.argmax(predictions[0]))
+    probs = predictions[0]  # array of 5 probabilities
+
+    predicted_index = int(np.argmax(probs))
     predicted_class = CLASS_NAMES[predicted_index]
-    confidence = float(predictions[0][predicted_index]) * 100
+    top_confidence = float(probs[predicted_index]) * 100
+
+    # Second highest confidence
+    sorted_probs = np.sort(probs)[::-1]
+    second_confidence = float(sorted_probs[1]) * 100
+    margin = top_confidence - second_confidence
+
+    # Determine if it's a valid fruit prediction
+    is_fruit = (top_confidence >= CONFIDENCE_THRESHOLD) and (margin >= MARGIN_THRESHOLD)
 
     st.divider()
     st.subheader("\U0001F3AF Prediction Result")
 
-    # ==============================
-    # CONFIDENCE CHECK
-    # ==============================
-
-    if confidence < CONFIDENCE_THRESHOLD:
-        # Not confident enough — not a recognized fruit
-        col1, col2 = st.columns(2)
-        with col1:
-            st.error("\U0001F6AB **Not a Fruit**")
-            st.caption("Predicted Class")
-        with col2:
-            st.warning(f"**{confidence:.2f}%**")
-            st.caption("Confidence Score (too low)")
-
-        st.info(
-            "\U0001F4A1 The model could not recognize this as one of the 5 fruit classes "
-            "(Apple, Banana, Mango, Orange, Strawberry). "
-            "Please upload a clearer fruit image."
-        )
-
-    else:
-        # Confident — show result normally
+    if is_fruit:
         emoji = CLASS_EMOJI[predicted_class]
-
         col1, col2 = st.columns(2)
         with col1:
             st.success(f"{emoji} **{predicted_class}**")
             st.caption("Predicted Class")
         with col2:
-            st.info(f"**{confidence:.2f}%**")
+            st.info(f"**{top_confidence:.2f}%**")
             st.caption("Confidence Score")
+    else:
+        col1, col2 = st.columns(2)
+        with col1:
+            st.error("\U0001F6AB **Not a Fruit**")
+            st.caption("Predicted Class")
+        with col2:
+            st.warning(f"**{top_confidence:.2f}%**")
+            st.caption("Low Confidence Score")
+        st.info(
+            "\U0001F4A1 The uploaded image does not appear to be one of the 5 recognized fruits "
+            "(Apple, Banana, Mango, Orange, Strawberry). Please upload a clear fruit photo."
+        )
 
     # Always show all class probabilities
     st.divider()
     st.subheader("\U0001F4CA All Class Probabilities")
 
     for i, cls in enumerate(CLASS_NAMES):
-        prob = float(predictions[0][i]) * 100
+        prob = float(probs[i]) * 100
         e = CLASS_EMOJI[cls]
         st.progress(
             int(prob),
