@@ -1,5 +1,8 @@
+import os
+os.environ["KERAS_BACKEND"] = "jax"  # Use JAX backend instead of TensorFlow
+
 import streamlit as st
-import tensorflow as tf
+import keras
 import numpy as np
 from PIL import Image
 
@@ -33,7 +36,7 @@ IMAGE_SIZE = (224, 224)
 
 @st.cache_resource
 def load_model():
-    model = tf.keras.models.load_model(MODEL_PATH)
+    model = keras.models.load_model(MODEL_PATH)
     return model
 
 model = load_model()
@@ -72,7 +75,7 @@ if uploaded_file is not None:
     image = Image.open(uploaded_file).convert("RGB")
     st.image(image, caption="Uploaded Image", use_column_width=True)
 
-    # Preprocess using PIL only (no tf.keras.preprocessing)
+    # Preprocess using PIL + NumPy only (no tensorflow dependency)
     img_resized = image.resize(IMAGE_SIZE)
     img_array = np.array(img_resized, dtype=np.float32)
     img_array = np.expand_dims(img_array, axis=0)  # shape: (1, 224, 224, 3)
