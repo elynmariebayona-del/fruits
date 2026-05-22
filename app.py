@@ -1,5 +1,5 @@
 import os
-os.environ["KERAS_BACKEND"] = "jax"  # Use JAX backend instead of TensorFlow
+os.environ["KERAS_BACKEND"] = "jax"
 
 import streamlit as st
 import keras
@@ -29,6 +29,9 @@ CLASS_EMOJI = {
 }
 
 IMAGE_SIZE = (224, 224)
+
+# If the top prediction is below this threshold, show "Not a fruit"
+CONFIDENCE_THRESHOLD = 60.0  # 60%
 
 # ==============================
 # LOAD MODEL
@@ -75,10 +78,10 @@ if uploaded_file is not None:
     image = Image.open(uploaded_file).convert("RGB")
     st.image(image, caption="Uploaded Image", use_column_width=True)
 
-    # Preprocess using PIL + NumPy only (no tensorflow dependency)
+    # Preprocess
     img_resized = image.resize(IMAGE_SIZE)
     img_array = np.array(img_resized, dtype=np.float32)
-    img_array = np.expand_dims(img_array, axis=0)  # shape: (1, 224, 224, 3)
+    img_array = np.expand_dims(img_array, axis=0)  # (1, 224, 224, 3)
 
     with st.spinner("\U0001F50D Analyzing image..."):
         predictions = model.predict(img_array)
@@ -86,21 +89,43 @@ if uploaded_file is not None:
     predicted_index = int(np.argmax(predictions[0]))
     predicted_class = CLASS_NAMES[predicted_index]
     confidence = float(predictions[0][predicted_index]) * 100
-    emoji = CLASS_EMOJI[predicted_class]
 
     st.divider()
     st.subheader("\U0001F3AF Prediction Result")
 
-    col1, col2 = st.columns(2)
+    # ==============================
+    # CONFIDENCE CHECK
+    # ==============================
 
-    with col1:
-        st.success(f"{emoji} **{predicted_class}**")
-        st.caption("Predicted Class")
+    if confidence < CONFIDENCE_THRESHOLD:
+        # Not confident enough — not a recognized fruit
+        col1, col2 = st.columns(2)
+        with col1:
+            st.error("\U0001F6AB **Not a Fruit**")
+            st.caption("Predicted Class")
+        with col2:
+            st.warning(f"**{confidence:.2f}%**")
+            st.caption("Confidence Score (too low)")
 
-    with col2:
-        st.info(f"**{confidence:.2f}%**")
-        st.caption("Confidence Score")
+        st.info(
+            "\U0001F4A1 The model could not recognize this as one of the 5 fruit classes "
+            "(Apple, Banana, Mango, Orange, Strawberry). "
+            "Please upload a clearer fruit image."
+        )
 
+    else:
+        # Confident — show result normally
+        emoji = CLASS_EMOJI[predicted_class]
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.success(f"{emoji} **{predicted_class}**")
+            st.caption("Predicted Class")
+        with col2:
+            st.info(f"**{confidence:.2f}%**")
+            st.caption("Confidence Score")
+
+    # Always show all class probabilities
     st.divider()
     st.subheader("\U0001F4CA All Class Probabilities")
 
