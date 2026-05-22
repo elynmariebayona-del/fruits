@@ -1,10 +1,10 @@
 import os
-os.environ["KERAS_BACKEND"] = "torch"
+os.environ["KERAS_BACKEND"] = "jax"
 
 import streamlit as st
-import keras
 import numpy as np
 from PIL import Image
+import h5py
 
 # ==============================
 # CONFIGURATION
@@ -12,13 +12,7 @@ from PIL import Image
 
 MODEL_PATH = "mobilenetv2_fruits.h5"
 
-CLASS_NAMES = [
-    "Apple",
-    "Banana",
-    "Mango",
-    "Orange",
-    "Strawberry"
-]
+CLASS_NAMES = ["Apple", "Banana", "Mango", "Orange", "Strawberry"]
 
 CLASS_EMOJI = {
     "Apple":      "\U0001F34E",
@@ -33,12 +27,25 @@ CONFIDENCE_THRESHOLD = 70.0
 MARGIN_THRESHOLD = 30.0
 
 # ==============================
-# LOAD MODEL
+# LOAD MODEL — use custom_objects to fix DepthwiseConv2D JAX issue
 # ==============================
 
 @st.cache_resource
 def load_model():
-    model = keras.models.load_model(MODEL_PATH)
+    import keras
+    from keras.src.layers import DepthwiseConv2D as BaseDepthwiseConv2D
+
+    # Patch: wrap load to ignore 'groups' arg that JAX backend can't handle
+    class PatchedDepthwiseConv2D(BaseDepthwiseConv2D):
+        def __init__(self, *args, **kwargs):
+            kwargs.pop("groups", None)
+            super().__init__(*args, **kwargs)
+
+    model = keras.models.load_model(
+        MODEL_PATH,
+        custom_objects={"DepthwiseConv2D": PatchedDepthwiseConv2D},
+        compile=False
+    )
     return model
 
 model = load_model()
@@ -75,7 +82,7 @@ uploaded_file = st.file_uploader(
 if uploaded_file is not None:
 
     image = Image.open(uploaded_file).convert("RGB")
-    st.image(image, caption="Uploaded Image", use_container_width=True)
+    st.image(image, caption="Uploaded Image", width="stretch")
 
     img_resized = image.resize(IMAGE_SIZE)
     img_array = np.array(img_resized, dtype=np.float32)
@@ -99,7 +106,6 @@ if uploaded_file is not None:
     st.subheader("\U0001F3AF Prediction Result")
 
     if is_fruit:
-        # ✅ Show fruit result + probabilities
         emoji = CLASS_EMOJI[predicted_class]
         col1, col2 = st.columns(2)
         with col1:
@@ -117,7 +123,6 @@ if uploaded_file is not None:
             st.progress(int(prob), text=f"{e} {cls}: {prob:.2f}%")
 
     else:
-        # ❌ Not a fruit — no probabilities shown
         col1, col2 = st.columns(2)
         with col1:
             st.error("\U0001F6AB **Not a Fruit**")
