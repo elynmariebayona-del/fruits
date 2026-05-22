@@ -4,7 +4,6 @@ os.environ["KERAS_BACKEND"] = "jax"
 import streamlit as st
 import numpy as np
 from PIL import Image
-import h5py
 
 # ==============================
 # CONFIGURATION
@@ -23,11 +22,13 @@ CLASS_EMOJI = {
 }
 
 IMAGE_SIZE = (224, 224)
-CONFIDENCE_THRESHOLD = 70.0
-MARGIN_THRESHOLD = 30.0
+
+# Lower threshold since we now preprocess correctly
+CONFIDENCE_THRESHOLD = 50.0   # top class must be at least 50%
+MARGIN_THRESHOLD = 20.0       # must beat 2nd place by at least 20%
 
 # ==============================
-# LOAD MODEL — use custom_objects to fix DepthwiseConv2D JAX issue
+# LOAD MODEL
 # ==============================
 
 @st.cache_resource
@@ -35,7 +36,6 @@ def load_model():
     import keras
     from keras.src.layers import DepthwiseConv2D as BaseDepthwiseConv2D
 
-    # Patch: wrap load to ignore 'groups' arg that JAX backend can't handle
     class PatchedDepthwiseConv2D(BaseDepthwiseConv2D):
         def __init__(self, *args, **kwargs):
             kwargs.pop("groups", None)
@@ -82,11 +82,15 @@ uploaded_file = st.file_uploader(
 if uploaded_file is not None:
 
     image = Image.open(uploaded_file).convert("RGB")
-    st.image(image, caption="Uploaded Image", width="stretch")
+    st.image(image, caption="Uploaded Image", use_container_width=True)
 
     img_resized = image.resize(IMAGE_SIZE)
     img_array = np.array(img_resized, dtype=np.float32)
-    img_array = np.expand_dims(img_array, axis=0)
+
+    # Manually rescale to 0-1 to bypass the internal Rescaling layer issue with JAX
+    img_array = img_array / 255.0
+
+    img_array = np.expand_dims(img_array, axis=0)  # (1, 224, 224, 3)
 
     with st.spinner("\U0001F50D Analyzing image..."):
         predictions = model(img_array, training=False)
