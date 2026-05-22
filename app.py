@@ -22,10 +22,8 @@ CLASS_EMOJI = {
 }
 
 IMAGE_SIZE = (224, 224)
-
-# Lower threshold since we now preprocess correctly
-CONFIDENCE_THRESHOLD = 50.0   # top class must be at least 50%
-MARGIN_THRESHOLD = 20.0       # must beat 2nd place by at least 20%
+CONFIDENCE_THRESHOLD = 60.0
+MARGIN_THRESHOLD = 25.0
 
 # ==============================
 # LOAD MODEL
@@ -84,25 +82,22 @@ if uploaded_file is not None:
     image = Image.open(uploaded_file).convert("RGB")
     st.image(image, caption="Uploaded Image", use_container_width=True)
 
+    # Resize and convert to float32 — pass raw 0-255 values
+    # Model's internal Rescaling(1./255) layer handles normalization
     img_resized = image.resize(IMAGE_SIZE)
-    img_array = np.array(img_resized, dtype=np.float32)
-
-    # Manually rescale to 0-1 to bypass the internal Rescaling layer issue with JAX
-    img_array = img_array / 255.0
-
-    img_array = np.expand_dims(img_array, axis=0)  # (1, 224, 224, 3)
+    img_array = np.array(img_resized, dtype=np.float32)  # shape: (224, 224, 3)
+    img_array = np.expand_dims(img_array, axis=0)        # shape: (1, 224, 224, 3)
 
     with st.spinner("\U0001F50D Analyzing image..."):
         predictions = model(img_array, training=False)
-        probs = np.array(predictions[0])
+        probs = np.array(predictions[0], dtype=np.float32)
 
     predicted_index = int(np.argmax(probs))
     predicted_class = CLASS_NAMES[predicted_index]
     top_confidence = float(probs[predicted_index]) * 100
 
     sorted_probs = np.sort(probs)[::-1]
-    second_confidence = float(sorted_probs[1]) * 100
-    margin = top_confidence - second_confidence
+    margin = float(sorted_probs[0] - sorted_probs[1]) * 100
 
     is_fruit = (top_confidence >= CONFIDENCE_THRESHOLD) and (margin >= MARGIN_THRESHOLD)
 
